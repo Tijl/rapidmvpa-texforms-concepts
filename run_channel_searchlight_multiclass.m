@@ -1,4 +1,4 @@
-function run_decoding_pairwise(varargin)
+function run_channel_searchlight_multiclass(varargin)
 
     %%
     if ismac
@@ -8,6 +8,7 @@ function run_decoding_pairwise(varargin)
         nproc = 2;
     else %on HPC
         addpath('../CoSMoMVPA/mvpa');
+        addpath('../fieldtrip')
         % start cluster, give it a unique directory
         % starting a pool can fail when 2 procs are requesting simultaneous
         % thus try again after a second until success
@@ -25,6 +26,7 @@ function run_decoding_pairwise(varargin)
         end
         nproc=cosmo_parallel_get_nproc_available();
     end
+    ft_defaults;
 
     opt = struct();
     opt = cosmo_structjoin(opt,varargin);
@@ -32,7 +34,7 @@ function run_decoding_pairwise(varargin)
     
     %%
     fn = sprintf('data/derivatives/cosmomvpa/sub-%02i_task-rsvp_cosmomvpa.mat',subjectnr);
-    outfn = sprintf('results/sub-%02i_decoding_pairwise.mat',subjectnr);
+    outfn = sprintf('results/sub-%02i_channel_searchlight_multiclass.mat',subjectnr);
     fprintf('loading %s\n',fn);tic
     load(fn,'ds')
     fprintf('loading data finished in %i seconds\n',ceil(toc))
@@ -71,67 +73,19 @@ for tc = 1:length(targetxcondi)
     idxc3 = ds.sa.durationcondition==c3-1;
     dsb = cosmo_slice(ds,idxc2 & idxc3);
     
-    nh = cosmo_interval_neighborhood(dsb,'time','radius',0);
+    nh1 = cosmo_meeg_chan_neighborhood(dsb, 'count', 4);
+    nh2 = cosmo_interval_neighborhood(dsb,'time','radius',0);
+    nh = cosmo_cross_neighborhood(ds,{nh1,nh2});
 
     ma = struct();
     ma.classifier = @cosmo_classify_lda;
-    
-    %create partitioning scheme
-    ut = unique(dsb.sa.targets);
-    % all chunks to leave out
-    uc = unique(dsb.sa.chunks);
-    sa=struct('target1',[],'target2',[],'leftoutchunk',[],'leftoutexemplar1',[],'leftoutexemplar2',[]);
-    ma.output = 'fold_accuracy';
-    ma.partitions = struct();
-    ma.partitions.train_indices = {};
-    ma.partitions.test_indices = {};
-    if length(ut)==2
-        % for categorical contrasts: exemplar-by-sequence
-        dsb.sa.cvtargets = dsb.sa.stimnumber;
-        % ue1 and ue2 are the unique exemplars (to leave out in the test set)
-        ue1 = unique(dsb.sa.cvtargets(dsb.sa.targets==ut(1)));
-        ue2 = unique(dsb.sa.cvtargets(dsb.sa.targets==ut(2)));
-        % leave combinations of exemplar pairs out once
-        ue = [ue1 ue2];
-        for j=1:length(uc) % for each chunk to leave out
-            idx_chunk = dsb.sa.chunks==uc(j); % find chunk to leave out
-            for k=1:size(ue,1) % for each exemplar pair to leave out
-                % store left out chunk and exemplar in result
-                sa.target1(end+1,1) = ut(1);
-                sa.target2(end+1,1) = ut(2);
-                sa.leftoutchunk(end+1,1) = uc(j);
-                sa.leftoutexemplar1(end+1,1) = ue(k,1);
-                sa.leftoutexemplar2(end+1,1) = ue(k,2);
-                % set partitions
-                idx_ex = ismember(dsb.sa.cvtargets,ue(k,:));
-                ma.partitions.train_indices{1,end+1} = find(~idx_chunk & ~idx_ex);
-                ma.partitions.test_indices{1,end+1} = find(idx_chunk & idx_ex);
-            end
-        end
-    else
-        % all pairwise combinations
-        combs = combnk(unique(dsb.sa.targets,'rows'),2);
-        ma.check_partitions = false;
-        for i=1:length(combs) % for each pair
-            idx_ex = ismember(dsb.sa.targets,combs(i,1)) | ismember(dsb.sa.targets,combs(i,2));
-            for j=1:length(uc) % for each chunk to leave out
-                idx_chunk = dsb.sa.chunks==uc(j); % find chunk to leave out
-                % store left out chunk and exemplar in result
-                sa.target1(end+1,1) = combs(i,1);
-                sa.target2(end+1,1) = combs(i,2);
-                sa.leftoutchunk(end+1,1) = uc(j);
-                sa.leftoutexemplar1(end+1,1) = combs(i,1);
-                sa.leftoutexemplar2(end+1,1) = combs(i,2);
-                % set partitions
-                ma.partitions.train_indices{1,end+1} = find(~idx_chunk & idx_ex);
-                ma.partitions.test_indices{1,end+1} = find(idx_chunk & idx_ex);
-            end
-        end
-    end
+    ma.output = 'accuracy';
+    ma.partitions = cosmo_nfold_partitioner(dsb);
     ma.nproc = nproc;
 
     r = cosmo_searchlight(dsb,nh,@cosmo_crossvalidation_measure,ma);
     
+    sa = {};
     sa.c1 = repmat(c1,size(r.samples,1),1);
     sa.c2 = repmat(c2,size(r.samples,1),1);
     sa.c3 = repmat(c3,size(r.samples,1),1);
@@ -139,10 +93,8 @@ for tc = 1:length(targetxcondi)
     sa.c2label = repmat(stimconditionlabels(c2),size(r.samples,1),1);
     sa.c3label = repmat(durationconditionlabels(c3),size(r.samples,1),1);
     
-    r.sa = cosmo_structjoin(r.sa,sa);
-    r2 = cosmo_average_samples(r,'split_by',{});
-    
-    res{tc} = r2;
+    r.sa = cosmo_structjoin(r.sa,sa);    
+    res{tc} = r;
     
     save(outfn,'res','-v7.3');
     

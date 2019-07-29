@@ -1,4 +1,4 @@
-function stats_decoding_pairwise()
+function stats_cross_decoding_pairwise()
 
     if isempty(which('cosmo_wtf'))
         addpath('~/CoSMoMVPA/mvpa')
@@ -11,7 +11,7 @@ function stats_decoding_pairwise()
     nsubjects=20;
     res_all={};cc = clock();mm='';
     for f=1:nsubjects
-        fn = sprintf('results/sub-%02i_decoding_pairwise.mat',f);
+        fn = sprintf('results/sub-%02i_cross_decoding_pairwise.mat',f);
         load(fn,'res')
         res_avg={};
         for i = 1:length(res)
@@ -33,21 +33,20 @@ function stats_decoding_pairwise()
     stats = {};
     timevect = res_all.a.fdim.values{1};
     cc = clock();mm='';
-    for c1=1:3        
+    for c1=1:3
         for c2=1:2
             for c3=1:4
                 idx = res_all.sa.c1==c1 & res_all.sa.c2==c2 & res_all.sa.c3==c3;
                 res_idx = cosmo_slice(res_all,idx);
-                
+                x = res_idx.samples;
+
                 opt={};
                 opt.niter = 1000;
                 opt.h0_mean = .5;
                 res_idx.sa.targets = ones(size(res_idx.sa.snum));
                 res_idx.sa.chunks = cumsum(ones(size(res_idx.sa.snum)));
                 ds_tfce = cosmo_montecarlo_cluster_stat(res_idx,cosmo_cluster_neighborhood(res_idx),opt);
-                
-                x = res_idx.samples;
-
+                                
                 s = struct();
                 s.n = size(x,1);
                 s.mu = mean(x);
@@ -55,16 +54,14 @@ function stats_decoding_pairwise()
                 h0mean = .5;
                 s.tstat = (s.mu-h0mean)./s.se;
                 s.bf = t1smpbf(s.tstat,s.n,r);
-                
                 s.tfce_zval = ds_tfce.samples;
-                
                 s.c1 = c1;
                 s.c2 = c2;
                 s.c3 = c3;
                 s.c1label = res_idx.sa.c1label{1};
                 s.c2label = res_idx.sa.c2label{1};
                 s.c3label = res_idx.sa.c3label{1};
-                s.timevect = timevect
+                s.timevect = timevect;
                 stats{c1,c2,c3} = s;
             end
         end
@@ -72,6 +69,6 @@ function stats_decoding_pairwise()
     end
     
     fprintf('Saving\n')
-    save('results/stats_decoding_pairwise.mat','stats','-v7.3')
+    save('results/stats_cross_decoding_pairwise.mat','stats')
     fprintf('Done\n')
     

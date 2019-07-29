@@ -1,4 +1,4 @@
-function run_decoding_pairwise(varargin)
+function run_cross_decoding_pairwise(varargin)
 
     %%
     if ismac
@@ -32,7 +32,7 @@ function run_decoding_pairwise(varargin)
     
     %%
     fn = sprintf('data/derivatives/cosmomvpa/sub-%02i_task-rsvp_cosmomvpa.mat',subjectnr);
-    outfn = sprintf('results/sub-%02i_decoding_pairwise.mat',subjectnr);
+    outfn = sprintf('results/sub-%02i_cross_decoding_pairwise.mat',subjectnr);
     fprintf('loading %s\n',fn);tic
     load(fn,'ds')
     fprintf('loading data finished in %i seconds\n',ceil(toc))
@@ -52,8 +52,8 @@ targetlabels = {'image','animacy','size'};
 stimconditionlabels = {'texform','object'};
 durationconditionlabels = {'60Hz','30Hz','20Hz','5Hz'};
 
-[c1,c2,c3]=meshgrid(1:length(targetlabels),1:length(stimconditionlabels),1:length(durationconditionlabels));
-targetxcondi=[c1(:) c2(:) c3(:)];
+[c2,c3,c1]=meshgrid(1:length(stimconditionlabels),1:length(durationconditionlabels),1:length(targetlabels));
+targetxcondi=flipud([c1(:) c2(:) c3(:)]); %flipped the order so it does the easy ones first (so we can check it is correct)
 
 %per stimcondition x durationcondition
 res=cell(length(targetxcondi),1);
@@ -66,10 +66,10 @@ for tc = 1:length(targetxcondi)
     
     fprintf('\n\n%s decoding...\n',mmtc)
     ds.sa.targets = targets{c1};
-    ds.sa.chunks = ds.sa.streamnumber;
-    idxc2 = ds.sa.stimcondition==c2-1;
+    ds.sa.chunks = ds.sa.ustreamnumber;
     idxc3 = ds.sa.durationcondition==c3-1;
-    dsb = cosmo_slice(ds,idxc2 & idxc3);
+    dsb = cosmo_slice(ds, idxc3);
+    idxc2 = dsb.sa.stimcondition==c2-1;
     
     nh = cosmo_interval_neighborhood(dsb,'time','radius',0);
 
@@ -104,8 +104,8 @@ for tc = 1:length(targetxcondi)
                 sa.leftoutexemplar2(end+1,1) = ue(k,2);
                 % set partitions
                 idx_ex = ismember(dsb.sa.cvtargets,ue(k,:));
-                ma.partitions.train_indices{1,end+1} = find(~idx_chunk & ~idx_ex);
-                ma.partitions.test_indices{1,end+1} = find(idx_chunk & idx_ex);
+                ma.partitions.train_indices{1,end+1} = find(~idxc2 & ~idx_chunk & ~idx_ex);
+                ma.partitions.test_indices{1,end+1} = find(idxc2 & idx_chunk & idx_ex);
             end
         end
     else
@@ -123,8 +123,8 @@ for tc = 1:length(targetxcondi)
                 sa.leftoutexemplar1(end+1,1) = combs(i,1);
                 sa.leftoutexemplar2(end+1,1) = combs(i,2);
                 % set partitions
-                ma.partitions.train_indices{1,end+1} = find(~idx_chunk & idx_ex);
-                ma.partitions.test_indices{1,end+1} = find(idx_chunk & idx_ex);
+                ma.partitions.train_indices{1,end+1} = find(~idxc2 & ~idx_chunk & idx_ex);
+                ma.partitions.test_indices{1,end+1} = find(idxc2 & idx_chunk & idx_ex);
             end
         end
     end
